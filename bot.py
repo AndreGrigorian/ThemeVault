@@ -43,6 +43,13 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
+    try:
+        client = MongoClient(URI, server_api=ServerApi('1'))
+        client.admin.command('ping')  # Test connection
+        print("MongoDB connection successful!")
+    except Exception as e:
+        print(f"MongoDB connection failed: {e}")
+
 
 @bot.tree.command(name="save_theme", description="Save the current server state as a theme.")
 async def save_theme(interaction: discord.Interaction, theme_name: str):
@@ -240,6 +247,32 @@ async def remove_theme(interaction: discord.Interaction, theme_name: str):
     except Exception as e:
         print(f"Failed to remove theme: {e}")
         await interaction.followup.send("An error occurred while removing the theme. Please try again later.", ephemeral=True)
+
+
+@bot.tree.command(name="list_themes", description="List all saved themes for the server.")
+async def list_themes(interaction: discord.Interaction):
+    # Defer interaction to handle longer processing times
+    await interaction.response.defer()
+
+    guild = interaction.guild
+    if guild is None:
+        await interaction.followup.send("This command can only be used in a server.", ephemeral=True)
+        return
+
+    # Fetch the server's saved themes from MongoDB
+    server_data = themes_collection.find_one({"server_id": guild.id})
+    if not server_data or not server_data.get("themes"):
+        await interaction.followup.send("No themes saved for this server.", ephemeral=True)
+        return
+
+    # Extract theme names
+    theme_names = [theme["name"] for theme in server_data["themes"]]
+
+    # Format the response
+    theme_list = "\n".join(f"- {name}" for name in theme_names)
+    response_message = f"**Saved Themes for {guild.name}:**\n{theme_list}"
+
+    await interaction.followup.send(response_message)
 
 
 @bot.tree.command(name="help", description="List all commands")
