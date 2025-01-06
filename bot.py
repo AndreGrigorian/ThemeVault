@@ -7,6 +7,7 @@ from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 import json
 import aiohttp
+import asyncio
 
 
 # mongodb setup
@@ -131,34 +132,31 @@ async def load_theme(interaction: discord.Interaction, theme_name: str):
         await interaction.followup.send("This command can only be used in a server.", ephemeral=True)
         return
 
-    # Fetch the theme data from MongoDB by server id
     server_data = themes_collection.find_one({"server_id": guild.id})
     if not server_data:
         await interaction.followup.send("No themes saved for this server.", ephemeral=True)
         return
 
-    # Find the specific theme
-    saved_theme = next(
-        (theme for theme in server_data.get(
-            "themes", []) if theme["name"] == theme_name),
-        None
-    )
+    saved_theme = next((theme for theme in server_data.get(
+        "themes", []) if theme["name"] == theme_name), None)
     if not saved_theme:
         await interaction.followup.send(f"Theme '{theme_name}' not found.", ephemeral=True)
         return
 
     theme_data = saved_theme["data"]
 
-    # Update server name, icon, and badge
+    # Update server name and icon
     try:
         if theme_data.get("server_name") and guild.name != theme_data["server_name"]:
             await guild.edit(name=theme_data["server_name"])
+
         if theme_data.get("server_icon"):
             async with aiohttp.ClientSession() as session:
                 async with session.get(theme_data["server_icon"]) as resp:
                     if resp.status == 200:
                         icon_bytes = await resp.read()
                         await guild.edit(icon=icon_bytes)
+
         if theme_data.get("server_banner"):
             async with aiohttp.ClientSession() as session:
                 async with session.get(theme_data["server_banner"]) as resp:
@@ -167,13 +165,12 @@ async def load_theme(interaction: discord.Interaction, theme_name: str):
                         await guild.edit(banner=banner_bytes)
 
     except Exception as e:
-        await interaction.followup.send("Failed to update server name, icon, or banner.")
         print(f"Failed to update server name, icon, or banner: {e}")
+        await interaction.followup.send("Failed to update server name, icon, or banner.")
 
     # Synchronize categories
     existing_categories = {
         category.name: category for category in guild.categories}
-    # Maps saved category names to their created/updated category objects
     category_mapping = {}
 
     for saved_category in sorted(theme_data.get("categories", []), key=lambda c: c["position"]):
@@ -185,11 +182,10 @@ async def load_theme(interaction: discord.Interaction, theme_name: str):
             if category.position != category_position:
                 await category.edit(position=category_position)
         else:
-            # Create a new category if it doesn't exist
             category = await guild.create_category(name=category_name, position=category_position)
 
-        # Store the mapping of saved category name to the category object
         category_mapping[category_name] = category
+        await asyncio.sleep(0.5)  # Add delay to prevent rate limiting
 
     # Synchronize channels
     existing_channels = {channel.id: channel for channel in guild.channels}
@@ -207,13 +203,108 @@ async def load_theme(interaction: discord.Interaction, theme_name: str):
             if channel.name != channel_name or channel.category != parent_category:
                 await channel.edit(name=channel_name, category=parent_category)
         else:
-            # Create the channel if it doesn't exist
             if channel_type == "text":
                 await guild.create_text_channel(name=channel_name, category=parent_category)
             elif channel_type == "voice":
                 await guild.create_voice_channel(name=channel_name, category=parent_category)
 
+        await asyncio.sleep(0.5)  # Add delay to prevent rate limiting
+
     await interaction.followup.send(f"Theme '{theme_name}' loaded successfully!")
+
+
+# @bot.tree.command(name="load_theme", description="Load a saved theme for the server.")
+# async def load_theme(interaction: discord.Interaction, theme_name: str):
+#     await interaction.response.defer()
+
+#     guild = interaction.guild
+#     if guild is None:
+#         await interaction.followup.send("This command can only be used in a server.", ephemeral=True)
+#         return
+
+#     # Fetch the theme data from MongoDB by server id
+#     server_data = themes_collection.find_one({"server_id": guild.id})
+#     if not server_data:
+#         await interaction.followup.send("No themes saved for this server.", ephemeral=True)
+#         return
+
+#     # Find the specific theme
+#     saved_theme = next(
+#         (theme for theme in server_data.get(
+#             "themes", []) if theme["name"] == theme_name),
+#         None
+#     )
+#     if not saved_theme:
+#         await interaction.followup.send(f"Theme '{theme_name}' not found.", ephemeral=True)
+#         return
+
+#     theme_data = saved_theme["data"]
+
+#     # Update server name, icon, and badge
+#     try:
+#         if theme_data.get("server_name") and guild.name != theme_data["server_name"]:
+#             await guild.edit(name=theme_data["server_name"])
+#         if theme_data.get("server_icon"):
+#             async with aiohttp.ClientSession() as session:
+#                 async with session.get(theme_data["server_icon"]) as resp:
+#                     if resp.status == 200:
+#                         icon_bytes = await resp.read()
+#                         await guild.edit(icon=icon_bytes)
+#         if theme_data.get("server_banner"):
+#             async with aiohttp.ClientSession() as session:
+#                 async with session.get(theme_data["server_banner"]) as resp:
+#                     if resp.status == 200:
+#                         banner_bytes = await resp.read()
+#                         await guild.edit(banner=banner_bytes)
+
+#     except Exception as e:
+#         await interaction.followup.send("Failed to update server name, icon, or banner.")
+#         print(f"Failed to update server name, icon, or banner: {e}")
+
+#     # Synchronize categories
+#     existing_categories = {
+#         category.name: category for category in guild.categories}
+#     # Maps saved category names to their created/updated category objects
+#     category_mapping = {}
+
+#     for saved_category in sorted(theme_data.get("categories", []), key=lambda c: c["position"]):
+#         category_name = saved_category.get("name")
+#         category_position = saved_category.get("position")
+
+#         if category_name in existing_categories:
+#             category = existing_categories[category_name]
+#             if category.position != category_position:
+#                 await category.edit(position=category_position)
+#         else:
+#             # Create a new category if it doesn't exist
+#             category = await guild.create_category(name=category_name, position=category_position)
+
+#         # Store the mapping of saved category name to the category object
+#         category_mapping[category_name] = category
+
+#     # Synchronize channels
+#     existing_channels = {channel.id: channel for channel in guild.channels}
+
+#     for saved_channel in theme_data.get("channels", []):
+#         channel_id = saved_channel.get("id")
+#         channel_name = saved_channel.get("name")
+#         channel_type = saved_channel.get("type")
+#         parent_category_name = saved_channel.get("category")
+
+#         parent_category = category_mapping.get(parent_category_name)
+
+#         if channel_id in existing_channels:
+#             channel = existing_channels[channel_id]
+#             if channel.name != channel_name or channel.category != parent_category:
+#                 await channel.edit(name=channel_name, category=parent_category)
+#         else:
+#             # Create the channel if it doesn't exist
+#             if channel_type == "text":
+#                 await guild.create_text_channel(name=channel_name, category=parent_category)
+#             elif channel_type == "voice":
+#                 await guild.create_voice_channel(name=channel_name, category=parent_category)
+
+#     await interaction.followup.send(f"Theme '{theme_name}' loaded successfully!")
 
 
 @bot.tree.command(name="remove_theme", description="Remove a saved theme from the server.")
